@@ -1,7 +1,7 @@
 # libperf
 ## README
 
-libperf is a library that wraps around the `perf_event_open()` syscall, to expose the Linux kernel performance counters subsystem to userspace. 
+libperf is a library that wraps around the `perf_event_open()` syscall, to expose the Linux kernel performance counters subsystem to userspace applications.
 
 ## Summarising
 

@@ -38,16 +38,8 @@ libperf has 4 dependancies:
 - CXX11 conformant compiler
 
 
-Run the following steps to build the library for *use*:
-- `./configure`
-- `make`
-- `sudo make install`
-
-Run the following steps to build the library for *development*:
-- `./bootstrap.sh`
-- `./configure`
-- `make`
-- `sudo make install`
+Run the following step to build the library for *use*:
+- `make` or `make all`
 
 ## Using 
 
@@ -64,29 +56,7 @@ Use `libperf_log` to then obtin a log of all counters - this appends logs into a
 
 Finally, call `libperf_close` to shut down the library
 
-### Example (C API)
-
-Example using some of the functions in an example:
-
-```
-#include <inttypes.h> /* for PRIu64 definition */
-#include <stdint.h>   /* for uint64_t */ 
-#include <stdio.h>    /* for printf family */
-#include <stdlib.h>   /* for EXIT_SUCCESS definition */
-
-#include "libperf.h"  /* standard libperf include */
-
-int main(void)
-{
-	struct libperf_data* pd = libperf_initialize(-1,-1); // init lib
-	libperf_toggle_counter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS, true); // enable HW counter
-	const uint64_t counter = libperf_readcounter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS); // obtain value for specific counter
-	fprintf(stdout, "counter read: %"PRIu64"\n", counter);
-	libperf_toggle_counter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS, false); // disable HW counter
-	libperf_log(pd, NULL); // log *all* enabled counter values
-	return 0; // success exit value
-}
-```
+Refer to `example.c`
 
 ### CXX API
 
@@ -94,7 +64,7 @@ All functions from the C API are put into namespace `libperf`, with exception `s
 
 ### Compiling 
 
-Run `make (all)`, and link to archive output
+Statically link to archive output `libperf.a`
 
 ---
 

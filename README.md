@@ -45,7 +45,7 @@ Run the following step to build the library for *use*:
 
 ### C API
 
-Include `libperf.h', and call `libperf_initialise' function - this provides a handle to be used for future library calls.
+Include `libperf.h`, and call `libperf_initialise` function - this provides a handle to be used for future library calls.
 - If the id value is -1, then the library will monitor the entire system
 - Setting the cpu value to -1 causes the libperf counters to count across all CPUs for a given id (i.e. aggregate CPU statistics)
 

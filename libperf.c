@@ -1,0 +1,236 @@
+#define _POSIX_C_SOURCE 199309L
+#define _GNU_SOURCE
+
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include <errno.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
+#include <sys/stat.h>
+
+#include <linux/perf_event.h>
+#include <linux/hw_breakpoint.h>
+
+#include "libperf.h"
+
+/**
+ * @brief Definitions of libperf API and inner functionality
+ * @author Salih MSA, Wolfgang Richter, Vincent Bernardoff 
+ */
+
+#define __LIBPERF_MAX_COUNTERS 32 // number of hardware counters we are even able to utilise
+#define __LIBPERF_ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
+
+struct libperf_tracker { /* lib struct */
+	int group;
+	int fds[__LIBPERF_MAX_COUNTERS]; // set of counters
+	struct perf_event_attr *attrs;
+	pid_t id; // process or thread ID
+	int cpu; // CPU (or CPUs) to track
+	unsigned long long wall_start; // time profiling
+};
+
+static inline unsigned long long rdclock(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (unsigned long long)ts.tv_sec * 1000000000ULL + (unsigned long long)ts.tv_nsec;
+}
+
+struct stats { /* stats section */
+	double n;
+	double mean;
+	double M2;
+};
+
+static void update_stats(struct stats *stats, const uint64_t val)
+{
+	++stats->n;
+	const double delta = (double)val - stats->mean;
+	stats->mean += delta / stats->n;
+	stats->M2 += delta * ((double)val - stats->mean);
+}
+
+static inline double avg_stats(struct stats *stats)
+{
+	return stats->mean;
+}
+
+static inline int sys_perf_event_open(struct perf_event_attr *const hw_event, const pid_t id, const int cpu, const int group_fd, const unsigned long flags)
+{
+	return (int)syscall(__NR_perf_event_open, hw_event, id, cpu, group_fd, flags);
+}
+
+static struct perf_event_attr default_attrs[__LIBPERF_MAX_COUNTERS] = { // detailed configuration information for the event being created
+	// type = type of event,      config = type-specific configuration
+	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_CPU_CLOCK },
+	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_TASK_CLOCK },
+	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_CONTEXT_SWITCHES },
+	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_CPU_MIGRATIONS },
+	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_PAGE_FAULTS },
+	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_PAGE_FAULTS_MIN },
+	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_PAGE_FAULTS_MAJ },
+
+	{ .type = PERF_TYPE_HARDWARE, .config = PERF_COUNT_HW_CPU_CYCLES },
+	{ .type = PERF_TYPE_HARDWARE, .config = PERF_COUNT_HW_INSTRUCTIONS },
+	{ .type = PERF_TYPE_HARDWARE, .config = PERF_COUNT_HW_CACHE_REFERENCES },
+	{ .type = PERF_TYPE_HARDWARE, .config = PERF_COUNT_HW_CACHE_MISSES },
+	{ .type = PERF_TYPE_HARDWARE, .config = PERF_COUNT_HW_BRANCH_INSTRUCTIONS },
+	{ .type = PERF_TYPE_HARDWARE, .config = PERF_COUNT_HW_BRANCH_MISSES },
+	{ .type = PERF_TYPE_HARDWARE, .config = PERF_COUNT_HW_BUS_CYCLES },
+
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_WRITE << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_WRITE << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_PREFETCH << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_L1I | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_L1I | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_LL | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_LL | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_LL | (PERF_COUNT_HW_CACHE_OP_WRITE << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_LL | (PERF_COUNT_HW_CACHE_OP_WRITE << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_DTLB | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_DTLB | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_DTLB | (PERF_COUNT_HW_CACHE_OP_WRITE << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_DTLB | (PERF_COUNT_HW_CACHE_OP_WRITE << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_ITLB | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_ITLB | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_BPU | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
+	/* { .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_BPU | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16))}, */
+};
+
+libperf_tracker *libperf_init(const pid_t id, const int cpu)
+{
+	libperf_tracker *pd = malloc(sizeof(libperf_tracker));
+	if (pd == NULL) {
+		return NULL;
+	}
+
+	pd->group = -1;
+
+	for (size_t i = 0; i < __LIBPERF_ARRAY_SIZE(pd->fds); ++i) {
+		pd->fds[i] = -1;
+	}
+
+	pd->id = id;
+	pd->cpu = cpu;
+
+	struct perf_event_attr *attrs = malloc(__LIBPERF_ARRAY_SIZE(default_attrs) * sizeof(struct perf_event_attr)); // create a local copy of the attributes of our counters
+	if (attrs == NULL) {
+		return NULL;
+	}
+
+	for (size_t i = 0; i < __LIBPERF_MAX_COUNTERS; ++i) {
+		/* firstly, we are going to initialise fields, for every single counter perf offers
+		 * we will do so by copying over general data (counter stuff), then specifying additional fields
+		 * TODO at some point, we need to allow the extra fields (ie those which don't pertain to what events to track, but rather HOW the features are tracked) to be customised
+		 * this as it stands could be a default function, and then the described could be libperf_init_explicit or whatecer 
+		 * but that's for a later date, and would most likely require an additional struct or enum parameters (or some combination of the two)
+		 */
+		attrs[i] = default_attrs[i]; // copy over general data
+		attrs[i].size = sizeof(struct perf_event_attr); // specifics: we include this due to kernel backcompatibility issues
+		attrs[i].inherit = 1; // specifics: children inherit tracker (ie if you fork, tracker will still work in child process)
+		attrs[i].disabled = 1; // specifics: disable counters by default
+		attrs[i].enable_on_exec = 0; // specifics: do not enable counters due to exec* call
+
+		/* secondly, create event */
+		pd->fds[i] = sys_perf_event_open(attrs + i, pd->id, pd->cpu, pd->group, 0); // open event, albeit with no additional flags
+		if (pd->fds[i] < 0) {
+			if (errno == E2BIG || errno == EACCES || errno == EBADF || errno == EBUSY || errno == EFAULT || errno == EINTR || errno == EMFILE || errno == ENOSPC || errno == EOVERFLOW || errno == EPERM || errno == ESRCH) { // error types listed are those which are due to programmer error or runtime issues with system
+				fprintf(stderr, "Error: specified event #%lu is invalid thus aborting; refer to documentation & manual pages\n", i);
+				return NULL;
+			} else { // for others, we print a warning and that's it
+				fprintf(stderr, "Warning: event #%lu unsupported but continuing; refer to documentation & manual pages\n", i);
+			}
+		}
+	}
+
+	pd->wall_start = rdclock();
+	return pd;
+}
+
+int libperf_read_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, uint64_t *const value)
+{
+	if (counter < 0 || counter > __LIBPERF_MAX_COUNTERS) {
+		return 1;
+	}
+
+	if (counter == 32) { // act for a custom instruction
+		*value = (uint64_t)(rdclock() - pd->wall_start);
+	}
+	else { // all other instructions
+		if (pd->fds[counter] < 0) { // ie we weren't able to initialise it in the first place
+			return 2;
+		}
+
+		if (read(pd->fds[counter], value, sizeof(uint64_t)) != sizeof(uint64_t)) { // if there was an error reading the counter
+			return 3;
+		}
+	}
+
+	return 0;
+}
+
+int libperf_toggle_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, const bool toggle_type)
+{
+	if (counter < 0 || counter > __LIBPERF_MAX_COUNTERS) {
+		return 1;
+	}
+
+	if (pd->fds[counter] < 0) { // if a specific counter isn't even active (due to failing in libperf_init)
+		return 2;
+	}
+
+	if (ioctl(pd->fds[counter], toggle_type ? PERF_EVENT_IOC_ENABLE : PERF_EVENT_IOC_DISABLE) != 0) { // 0 is good, non-zero is bad 
+		return 3 ;
+	}
+
+	return 0 ;
+}
+
+int libperf_log(libperf_tracker *const pd, FILE *const stream, const size_t tag)
+{
+	uint64_t count[3]; /* potentially 3 values */
+
+	struct stats event_stats[__LIBPERF_ARRAY_SIZE(default_attrs)];
+
+	struct stats walltime_nsecs_stats;
+
+	for (size_t i = 0; i < __LIBPERF_MAX_COUNTERS; ++i) {
+		if (pd->fds[i] < 0) { // if event isn't monitorable on this system (failure to init)
+			continue; // then we move onto next stat
+		}
+
+		if (read(pd->fds[i], count, sizeof(uint64_t)) != sizeof(uint64_t)) { // if there was an error READING any of the values
+			return 2; // then we completely stop
+		}
+
+		update_stats(&event_stats[i], count[0]);
+
+		fprintf(stream, "Stats[%lu, %lu]: %14.0f\n", tag, i, avg_stats(&event_stats[i]));
+	}
+
+	update_stats(&walltime_nsecs_stats, rdclock() - pd->wall_start);
+	fprintf(stream, "Stats[%lu, %lu]: %14.9f\n", tag, __LIBPERF_ARRAY_SIZE(default_attrs), avg_stats(&walltime_nsecs_stats) / 1e9);
+
+	return 0;
+}
+
+void libperf_fini(libperf_tracker *const pd)
+{
+	for (size_t i = 0; i <  __LIBPERF_ARRAY_SIZE(default_attrs); ++i) {
+		if (pd->fds[i] < 0) {
+			close(pd->fds[i]);
+		}
+	}
+
+	free(pd);
+}

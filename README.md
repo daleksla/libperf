@@ -54,52 +54,38 @@ Run the following steps to build the library for *development*:
 ### C API
 
 Include `libperf.h', and call `libperf_initialise' function - this provides a handle to be used for future library calls.
+- If the id value is -1, then the library will monitor the entire system
+- Setting the cpu value to -1 causes the libperf counters to count across all CPUs for a given id (i.e. aggregate CPU statistics)
 
-The available counters are defined in the 'enum libperf_tracepoint'; 'libperf_enablecounter' and 'libperf_disablecounter' are used to enable and
-disable individual counters as desired. 'libperf_readcounter' is then used to read a single 64 bit counter from the library.
+The available counters are defined in the `enum libperf_tracepoint`; `libperf_enablecounter` and `libperf_disablecounter` are used to enable and
+disable individual counters as desired. 'libperf_readcounter' is then used to read a single (enabled) 64 bit counter from the library.
 
-Use `libperf_log` to then obtin a log of all counters - this appends logs into a file named after the PID value passed
-into `libperf_initialise`.  If the pid value is -1, then the library will use
-the system call 'gettid' to obtain the thread id of the current running thread
-of execution (equivalent to the pid of a single-threaded application).  Also,
-setting the 'cpu' value to -1 when initialising causes the libperf counters to
-count across all CPUs for a given thread id.
+Use `libperf_log` to then obtin a log of all counters - this appends logs into a file named after the PID value passed into `libperf_initialise`.
 
 Finally, call `libperf_close` to shut down the library
-
-`libperf_unit_test` performs a small test of the library, allocating 1 Gb (Gigabyte) of memory, touching each byte, and logging performance counters.
 
 ### Example (C API)
 
 Example using some of the functions in an example:
 
 ```
-     #include <inttypes.h> /* for PRIu64 definition */
-     #include <stdint.h>   /* for uint64_t */ 
-     #include <stdio.h>    /* for printf family */
-     #include <stdlib.h>   /* for EXIT_SUCCESS definition */
-     #include "libperf.h"  /* standard libperf include */
+#include <inttypes.h> /* for PRIu64 definition */
+#include <stdint.h>   /* for uint64_t */ 
+#include <stdio.h>    /* for printf family */
+#include <stdlib.h>   /* for EXIT_SUCCESS definition */
 
-     int main(int argc, char* argv[])
-     {
-          struct libperf_data* pd = libperf_initialize(-1,-1); /* init lib */
-          libperf_enablecounter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS);
-                                                /* enable HW counter */
-          uint64_t counter = libperf_readcounter(pd,
-                                                 LIBPERF_COUNT_HW_INSTRUCTIONS);
-                                                /* obtain counter value */
-          libperf_disablecounter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS);
-                                                /* disable HW counter */
+#include "libperf.h"  /* standard libperf include */
 
-          fprintf(stdout, "counter read: %"PRIu64"\n", counter); /* printout */
-
-          FILE* log = libperf_getlogger(pd); /* get log file stream */
-          fprintf(log, "custom log message\n"); /* print a custom log message */
-
-          libperf_finalize(pd, 0); /* log all counter values */
-
-          return EXIT_SUCCESS; /* success exit value */
-     }
+int main(void)
+{
+	struct libperf_data* pd = libperf_initialize(-1,-1); // init lib
+	libperf_toggle_counter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS, true); // enable HW counter
+	const uint64_t counter = libperf_readcounter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS); // obtain value for specific counter
+	fprintf(stdout, "counter read: %"PRIu64"\n", counter);
+	libperf_toggle_counter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS, false); // disable HW counter
+	libperf_log(pd, NULL); // log *all* enabled counter values
+	return 0; // success exit value
+}
 ```
 
 ### CXX API
@@ -108,7 +94,7 @@ All functions from the C API are put into namespace `libperf`, with exception `s
 
 ### Compiling 
 
-Pass `pkg-config --libs --cflags libperf` as an argument to your compiler of choice when you compile against the library
+Run `make (all)`, and link to archive output
 
 ---
 

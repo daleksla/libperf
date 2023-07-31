@@ -25,19 +25,19 @@ int main(void)
 	}
 
 	/* Enable counters */
-	if (libperf_toggle_counter(pd, LIBPERF_COUNT_HW_CPU_CYCLES, true) != 0) { // enable HW CPU cycles counter
+	if (libperf_toggle_counter(pd, LIBPERF_EVENT_HW_CPU_CYCLES, LIBPERF_EVENT_TOGGLE_ON) != 0) { // enable HW CPU cycles counter
 		fprintf(stderr, "unable to enable counter (perhaps it wasn't initialisable). errno %d\n", errno);
 		abort();
 	}
 
-	if (libperf_toggle_counter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS, true) != 0) { // enable HW instruction count counter
+	if (libperf_toggle_counter(pd, LIBPERF_EVENT_HW_INSTRUCTIONS, LIBPERF_EVENT_TOGGLE_ON) != 0) { // enable HW instruction count counter
 		fprintf(stderr, "unable to enable counter (perhaps it wasn't initialisable). errno %d\n", errno);
 		abort();
 	}
 
 	/* Read singular counter */
 	uint64_t counter;
-	if (libperf_read_counter(pd, LIBPERF_COUNT_HW_INSTRUCTIONS, &counter) != 0) { // obtain single counter value
+	if (libperf_read_counter(pd, LIBPERF_EVENT_HW_INSTRUCTIONS, &counter) != 0) { // obtain single counter value
 		fprintf(stderr, "unable to read counter (perhaps it wasn't initialisable in the first place, or most likely enabled). errno %d\n", errno);
 		abort();
 	} else {

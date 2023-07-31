@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdarg.h>
 
 #include <errno.h>
 #include <unistd.h>
@@ -31,9 +32,10 @@
 
 struct libperf_tracker { /* lib struct */
 	int group; // who's the group leader (or -1 if you are)
-	int fds[__LIBPERF_MAX_COUNTERS]; // set of counters
+	struct perf_event_attr *attrs; // list of events & their attributes. we will also use this to keep track of configuration information
 	pid_t id; // process or thread ID
 	int cpu; // CPU (or CPUs) to track
+	int fds[__LIBPERF_MAX_COUNTERS]; // set of counters
 	unsigned long long wall_start; // time profiling
 };
 
@@ -124,8 +126,8 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 	pd->id = id;
 	pd->cpu = cpu;
 
-	struct perf_event_attr *attrs = malloc(__LIBPERF_ARRAY_SIZE(default_attrs) * sizeof(struct perf_event_attr)); // create a local copy of the attributes of our counters
-	if (attrs == NULL) {
+	pd->attrs = malloc(__LIBPERF_ARRAY_SIZE(default_attrs) * sizeof(struct perf_event_attr)); // create a local copy of the attributes of our counters
+	if (pd->attrs == NULL) {
 		syslog(LOG_ERR, "libperf (in %s): unable to allocate memory for perf events attributes", __func__);
 		return NULL;
 	}
@@ -137,14 +139,14 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 		 * this as it stands could be a default function, and then the described could be libperf_init_explicit or whatecer 
 		 * but that's for a later date, and would most likely require an additional struct or enum parameters (or some combination of the two)
 		 */
-		attrs[i] = default_attrs[i]; // copy over general data
-		attrs[i].size = sizeof(struct perf_event_attr); // specifics: we include this due to kernel backcompatibility issues
-		attrs[i].inherit = 1; // specifics: children inherit tracker (ie if you fork, tracker will still work in child process)
-		attrs[i].disabled = 1; // specifics: disable counters by default
-		attrs[i].enable_on_exec = 0; // specifics: do not enable counters due to exec* call
+		pd->attrs[i] = default_attrs[i]; // copy over general data
+		pd->attrs[i].size = sizeof(struct perf_event_attr); // specifics: we include this due to kernel backcompatibility issues
+		pd->attrs[i].inherit = 1; // specifics: children inherit tracker (ie if you fork, tracker will still work in child process)
+		pd->attrs[i].disabled = 1; // specifics: disable counters by default
+		pd->attrs[i].enable_on_exec = 0; // specifics: do not enable counters due to exec* call
 
 		/* secondly, create event */
-		pd->fds[i] = sys_perf_event_open(attrs + i, pd->id, pd->cpu, pd->group, 0); // open event, albeit with no additional flags
+		pd->fds[i] = sys_perf_event_open(&pd->attrs[i], pd->id, pd->cpu, pd->group, 0); // open event, albeit with no additional flags
 		if (pd->fds[i] < 0) {
 			if (errno == E2BIG || errno == EACCES || errno == EBADF || errno == EBUSY || errno == EFAULT || errno == EINTR || errno == EMFILE || errno == ENOSPC || errno == EOVERFLOW || errno == EPERM || errno == ESRCH) { // error types listed are those which are due to programmer error or runtime issues with system
 				syslog(LOG_ERR, "libperf (in %s): specified event #%lu is invalid thus aborting; refer to documentation & manual pages", __func__, i);
@@ -161,44 +163,87 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 	return pd;
 }
 
-
-
-enum libperf_exit_code libperf_toggle_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, const bool toggle_type)
+enum libperf_exit libperf_toggle_counter(libperf_tracker *const pd, const enum libperf_event counter, const enum libperf_event_toggle toggle_type, ...)
 {
 	if (pd == NULL) {
 		syslog(LOG_ERR, "libperf (in %s): invalid handle", __func__);
-		return LIBPERF_HANDLE_INVALID;
+		return LIBPERF_EXIT_HANDLE_INVALID;
 	}
 
 	if (counter < 0 || counter > __LIBPERF_MAX_COUNTERS) {
 		syslog(LOG_ERR, "libperf (in %s): invalid counter '%d' supplied\n", __func__, counter);
-		return LIBPERF_COUNTER_INVALID;
+		return LIBPERF_EXIT_COUNTER_INVALID;
 	}
 
 	if (pd->fds[counter] < 0) { // if a specific counter isn't even active (due to failing in libperf_init)
 		syslog(LOG_ERR, "libperf (in %s): counter '%d' not initialised", __func__, counter);
-		return LIBPERF_COUNTER_UNINITIALISABLE;
+		return LIBPERF_EXIT_COUNTER_UNINITIALISABLE;
 	}
 
-	if (ioctl(pd->fds[counter], toggle_type ? PERF_EVENT_IOC_ENABLE : PERF_EVENT_IOC_DISABLE) != 0) { // 0 is good, non-zero is bad 
-		syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
-		return LIBPERF_SYSTEM_ERROR;
+	va_list args;
+	va_start(args, toggle_type);
+	switch (toggle_type) {
+		case LIBPERF_EVENT_TOGGLE_ON:
+			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_ENABLE) != 0) { // 0 is good, non-zero is bad 
+				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
+				return LIBPERF_EXIT_SYSTEM_ERROR;
+			}
+			pd->attrs[counter].disabled = 0;
+			break;
+		case LIBPERF_EVENT_TOGGLE_OFF:
+			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_DISABLE) != 0) {
+				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
+				return LIBPERF_EXIT_SYSTEM_ERROR;
+			}
+			pd->attrs[counter].disabled = 1;
+			break;
+		case LIBPERF_EVENT_TOGGLE_RESET:
+			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_RESET) != 0) {
+				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
+				return LIBPERF_EXIT_SYSTEM_ERROR;
+			}
+			break;
+		case LIBPERF_EVENT_TOGGLE_OVERFLOW_REFRESH:
+			const uint64_t overflows = va_arg(args, uint64_t);
+			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_REFRESH, overflows) != 0) {
+				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
+				return LIBPERF_EXIT_SYSTEM_ERROR;
+			}
+			break;
+		case LIBPERF_EVENT_TOGGLE_OVERFLOW_PERIOD:
+			uint64_t *const period = va_arg(args, uint64_t*);
+			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_PERIOD, period) != 0) {
+				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
+				return LIBPERF_EXIT_SYSTEM_ERROR;
+			}
+			break;
+		case LIBPERF_EVENT_TOGGLE_OUTPUT:
+			const uint32_t pause = va_arg(args, uint32_t);
+			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_PAUSE_OUTPUT, pause) != 0) {
+				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
+				return LIBPERF_EXIT_SYSTEM_ERROR;
+			}
+			break;
+		default:
+			syslog(LOG_ERR, "libperf (in %s): unsupported configuration supplied", __func__);
+			return LIBPERF_EXIT_COUNTER_CONFIGURATION_UNSUPPORTED;
 	}
+	va_end(args);
 
-	syslog(LOG_INFO, "libperf (in %s): counter '%d' %s", __func__, counter, toggle_type ? "enabled" : "disabled");
-	return LIBPERF_SUCCESS;
+	syslog(LOG_INFO, "libperf (in %s): counter '%d' manipulated successfully", __func__, counter);
+	return LIBPERF_EXIT_SUCCESS;
 }
 
-enum libperf_exit_code libperf_read_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, uint64_t *const value)
+enum libperf_exit libperf_read_counter(libperf_tracker *const pd, const enum libperf_event counter, uint64_t *const value)
 {
 	if (pd == NULL) {
 		syslog(LOG_ERR, "libperf (in %s): invalid handle", __func__);
-		return LIBPERF_HANDLE_INVALID;
+		return LIBPERF_EXIT_HANDLE_INVALID;
 	}
 
 	if (counter < 0 || counter > __LIBPERF_MAX_COUNTERS) {
 		syslog(LOG_ERR, "libperf (in %s): invalid counter '%d' supplied", __func__, counter);
-		return LIBPERF_COUNTER_INVALID;
+		return LIBPERF_EXIT_COUNTER_INVALID;
 	}
 
 	if (counter == 32) { // act for a custom instruction
@@ -207,23 +252,28 @@ enum libperf_exit_code libperf_read_counter(libperf_tracker *const pd, const enu
 	else { // all other instructions
 		if (pd->fds[counter] < 0) { // ie we weren't able to initialise it in the first place
 			syslog(LOG_ERR, "libperf (in %s): counter '%d' not initialised", __func__, counter);
-			return LIBPERF_COUNTER_UNINITIALISABLE;
+			return LIBPERF_EXIT_COUNTER_UNINITIALISABLE;
+		}
+
+		if (pd->attrs[counter].disabled == 1) {
+			syslog(LOG_ERR, "libperf (in %s): counter '%d' disabled", __func__, counter);
+			return LIBPERF_EXIT_COUNTER_DISABLED;
 		}
 
 		if (read(pd->fds[counter], value, sizeof(uint64_t)) != sizeof(uint64_t)) { // if there was an error reading the counter
 			syslog(LOG_ERR, "libperf (in %s): unable to read event for counter '%d'", __func__, counter);
-			return LIBPERF_SYSTEM_ERROR;
+			return LIBPERF_EXIT_SYSTEM_ERROR;
 		}
 	}
 
-	return LIBPERF_SUCCESS;
+	return LIBPERF_EXIT_SUCCESS;
 }
 
-enum libperf_exit_code libperf_log(libperf_tracker *const pd, FILE *const stream, const size_t tag)
+enum libperf_exit libperf_log(libperf_tracker *const pd, FILE *const stream, const size_t tag)
 {
 	if (pd == NULL) {
 		syslog(LOG_ERR, "libperf (in %s): invalid handle", __func__);
-		return LIBPERF_HANDLE_INVALID;
+		return LIBPERF_EXIT_HANDLE_INVALID;
 	}
 
 	uint64_t count[3]; /* potentially 3 values */
@@ -238,9 +288,13 @@ enum libperf_exit_code libperf_log(libperf_tracker *const pd, FILE *const stream
 			continue; // then we move onto next stat
 		}
 
+		if (pd->attrs[i].disabled == 1) { // if event is currently disabled
+			continue; // then we move onto next stat, we don't print error as people don't need to initialise everything
+		}
+
 		if (read(pd->fds[i], count, sizeof(uint64_t)) != sizeof(uint64_t)) { // if there was an error READING any of the values
 			syslog(LOG_ERR, "libperf (in %s): unable to read event for counter '%d'", __func__, i);
-			return LIBPERF_SYSTEM_ERROR; // then we completely stop
+			return LIBPERF_EXIT_SYSTEM_ERROR; // then we completely stop
 		}
 
 		update_stats(&event_stats[i], count[0]);
@@ -251,7 +305,7 @@ enum libperf_exit_code libperf_log(libperf_tracker *const pd, FILE *const stream
 	update_stats(&walltime_nsecs_stats, rdclock() - pd->wall_start);
 	fprintf(stream, "Stats[%lu, %lu]: %14.9f\n", tag, __LIBPERF_ARRAY_SIZE(default_attrs), avg_stats(&walltime_nsecs_stats) / 1e9);
 
-	return LIBPERF_SUCCESS;
+	return LIBPERF_EXIT_SUCCESS;
 }
 
 void libperf_fini(libperf_tracker *const pd)
@@ -267,6 +321,7 @@ void libperf_fini(libperf_tracker *const pd)
 		}
 	}
 
+	free(pd->attrs);
 	free(pd);
 
 	syslog(LOG_NOTICE, "libperf (in %s): library shut down", __func__);

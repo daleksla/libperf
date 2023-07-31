@@ -1,4 +1,3 @@
-lib/*.o
-lib/*.a
+lib/*
 examples/*.o
 examples/*.a

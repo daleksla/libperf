@@ -23,11 +23,11 @@ int main(void)
 		libperf::Tracker pd(getpid(), -1) ; // initialise libperf
 
 		/* Enable counters */
-		pd.toggle_counter(LIBPERF_COUNT_HW_CPU_CYCLES, true) ; // enable HW CPU cycles counter
-		pd.toggle_counter(LIBPERF_COUNT_HW_INSTRUCTIONS, true) ;
+		pd.toggle_counter(LIBPERF_EVENT_HW_CPU_CYCLES, LIBPERF_EVENT_TOGGLE_ON) ; // enable HW CPU cycles counter
+		pd.toggle_counter(LIBPERF_EVENT_HW_INSTRUCTIONS, LIBPERF_EVENT_TOGGLE_ON) ;
 
 		/* Read singular counter */
-		std::uint64_t counter = pd.read_counter(LIBPERF_COUNT_HW_INSTRUCTIONS) ;
+		std::uint64_t counter = pd.read_counter(LIBPERF_EVENT_HW_INSTRUCTIONS) ;
 		std::fprintf(stdout, "counter read: %" PRIu64 "\n", counter);
 
 		/* Logging */

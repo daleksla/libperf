@@ -12,6 +12,7 @@
 /**
  * @brief Declarations of libperf API for C++
  * @note Access to libperf in C++ in via an RAII-complaint container
+ * @note See https://man7.org/linux/man-pages/man2/perf_event_open.2.html for constructs this library (re)wraps
  * @author Salih MSA
  */
 
@@ -63,27 +64,27 @@ namespace libperf {
 			Tracker& operator=(Tracker&& tracker) noexcept ;
 
 			/**
-			 * @brief toggle_counter - method enables, or disables an individual counter
+			 * @brief toggle_counter - method manipulates a specified counter
 			 * @note Stub to libperf_toggle_counter()
 			 * @note Needed to configure value extraction, for use in `libperf_log` function 
-			 * @param const enum libperf_tracepoint counter - counter type
-			 * @param const bool toggle_type - true to enable, false to disable
+			 * @param const libperf_event counter - counter type
+			 * @param const libperf_event_toggle toggle_type - how to manipulate event
 			 * @throws std::system_error - thrown if we can't manipulate counter
 			 * @note Category of std::system_error will either be std::generic_category, or libperf::Error. The former is when a system error occured, and the latter when there was an issue with the library. Whichever one of them is assigned depends on the underlying C API
 			 */
-			void toggle_counter(const enum libperf_tracepoint counter, const bool toggle_type) noexcept(false) ;
+			void toggle_counter(const libperf_event counter, const libperf_event_toggle toggle_type, ...) noexcept(false) ;
 
 			/**
 			 * @brief read_counter - method reads a specified counter
 			 * @note You might want to use this, instead of the logging function, if you a) want to see the numbers real-time, b) only plan on recording one or two values
 			 * @note Stub to libperf_read_counter()
 			 * @pre this->toggle_counter(counter, true) - enable counter
-			 * @param const enum libperf_tracepoint counter - counter type
+			 * @param const libperf_event counter - counter type
 			 * @return std::uint64_t - value of counter
 			 * @throws std::system_error - thrown if we can't read value
 			 * @note Category of std::system_error will either be std::generic_category, or libperf::Error. The former is when a system error occured, and the latter when there was an issue with the library. Whichever one of them is assigned depends on the underlying C API
 			 */
-			std::uint64_t read_counter(const enum libperf_tracepoint counter) const noexcept(false) ;
+			std::uint64_t read_counter(const libperf_event counter) const noexcept(false) ;
 
 			/**
 			 * @brief log - logs values of all counters for debugging/logging purposes

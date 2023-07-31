@@ -24,6 +24,15 @@ libperf closes this gap and provides an API for interfacing with the system
 call used by the perf tool.  This provides all of the power of the tool with
 the granularity of snippets of code.
 
+The perf subsystem exposes a lot of details on a program execution, but this library is focussed on userspace performance analysis. As such, this library covers and automatically generates event monitors for the following types:
+- PERF_TYPE_HARDWARE
+- PERF_TYPE_SOFTWARE
+- PERF_TYPE_HW_CACHE
+
+At some point, support will be added for:
+- PERF_TYPE_BREAKPOINT (would be as part of an explicit initialiser where you specify attributes manually)
+- The userspace probe `Uprobe`, though it's a newer feature and makes less sense in static profiling (you can just create a series of events, then run the code, and read from the events after)
+
 This fork was created as:
 - The original creator does not maintain the library
 - Components of original library, if failed, would kill running process (bad for libraries)
@@ -51,8 +60,7 @@ Include `libperf.h`, and call `libperf_initialise` function - this provides a ha
 - If the id value is -1, then the library will monitor the entire system
 - Setting the cpu value to -1 causes the libperf counters to count across all CPUs for a given id (i.e. aggregate CPU statistics)
 
-The available counters are defined in the `enum libperf_tracepoint`; `libperf_enablecounter` and `libperf_disablecounter` are used to enable and
-disable individual counters as desired. 'libperf_readcounter' is then used to read a single (enabled) 64 bit counter from the library.
+The available counters are defined in the `enum libperf_event`; `libperf_toggle_counter` are used to configure (e.g. enable, disable) individual counters as desired. `libperf_readcounter` is then used to read a single (enabled) 64 bit counter from the library.
 
 Use `libperf_log` to then obtin a log of all counters - this appends logs into a file named after the PID value passed into `libperf_initialise`.
 

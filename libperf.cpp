@@ -5,6 +5,7 @@
 #include <system_error>
 #include <cstdint>
 #include <cerrno>
+#include <cstdarg>
 
 #include "libperf.h"
 
@@ -26,25 +27,23 @@ std::string libperf::Error::message(int condition) const
 
 	switch(condition)
 	{
-		case LIBPERF_COUNTER_INVALID:
-		{
+		case LIBPERF_EXIT_COUNTER_INVALID:
 			message = "Invalid counter supplied" ;
 			break ;
-		}
-		case LIBPERF_COUNTER_UNINITIALISABLE:
-		{
+		case LIBPERF_EXIT_COUNTER_UNINITIALISABLE:
 			message = "Counter specified uninitialisable" ;
 			break ;
-		}
-		case LIBPERF_HANDLE_INVALID:
-		{
+		case LIBPERF_EXIT_COUNTER_CONFIGURATION_UNSUPPORTED:
+			message = "Configuration supplied is not supported" ;
+			break ;
+		case LIBPERF_EXIT_HANDLE_INVALID:
 			message = "Invalid handle" ;
 			break ;
-		}
+		case LIBPERF_EXIT_COUNTER_DISABLED:
+			message = "Counter currently disabled" ;
+			break ;
 		default:
-		{
 			message = "Unknown error" ;
-		}
 	}
 
 	return message ;
@@ -73,14 +72,14 @@ libperf::Tracker& libperf::Tracker::operator=(libperf::Tracker&& tracker) noexce
 	return *this ;
 }
 
-std::uint64_t libperf::Tracker::read_counter(const enum libperf_tracepoint counter) const noexcept(false)
+std::uint64_t libperf::Tracker::read_counter(const libperf_event counter) const noexcept(false)
 {
 	std::uint64_t value ;
 
 	const auto err = libperf_read_counter(this->_tracker, counter, &value) ;
-	if(err != LIBPERF_SUCCESS)
+	if(err != LIBPERF_EXIT_SUCCESS)
 	{
-		if(err == LIBPERF_SYSTEM_ERROR)
+		if(err == LIBPERF_EXIT_SYSTEM_ERROR)
 		{
 			throw std::system_error(errno, std::generic_category()) ;
 		}
@@ -92,12 +91,40 @@ std::uint64_t libperf::Tracker::read_counter(const enum libperf_tracepoint count
 	return value ;
 }
 
-void libperf::Tracker::toggle_counter(const enum libperf_tracepoint counter, const bool toggle_type) noexcept(false)
+void libperf::Tracker::toggle_counter(const libperf_event counter, const libperf_event_toggle toggle_type, ...) noexcept(false)
 {
-	const auto err = libperf_toggle_counter(this->_tracker, counter, toggle_type) ;
-	if(err != LIBPERF_SUCCESS)
+	libperf_exit err ;
+
+	va_list args ;
+	va_start(args, toggle_type) ;
+	switch(toggle_type)
 	{
-		if(err == LIBPERF_SYSTEM_ERROR)
+		case LIBPERF_EVENT_TOGGLE_OVERFLOW_REFRESH:
+		{
+			const std::uint64_t overflows = va_arg(args, std::uint64_t) ;
+			err = libperf_toggle_counter(this->_tracker, counter, toggle_type, overflows) ;
+			break ;
+		}
+		case LIBPERF_EVENT_TOGGLE_OVERFLOW_PERIOD:
+		{
+			std::uint64_t *const period = va_arg(args, std::uint64_t*) ;
+			err = libperf_toggle_counter(this->_tracker, counter, toggle_type, period) ;
+			break ;
+		}
+		case LIBPERF_EVENT_TOGGLE_OUTPUT:
+		{
+			const std::uint32_t pause = va_arg(args, std::uint32_t) ;
+			err = libperf_toggle_counter(this->_tracker, counter, toggle_type, pause) ;
+			break ;
+		}
+		default:
+			err = libperf_toggle_counter(this->_tracker, counter, toggle_type) ;
+	}
+	va_end(args) ;
+
+	if(err != LIBPERF_EXIT_SUCCESS)
+	{
+		if(err == LIBPERF_EXIT_SYSTEM_ERROR)
 		{
 			throw std::system_error(errno, std::generic_category()) ;
 		}
@@ -110,9 +137,9 @@ void libperf::Tracker::toggle_counter(const enum libperf_tracepoint counter, con
 void libperf::Tracker::log(std::FILE *const stream, const std::size_t tag) const noexcept(false)
 {
 	const auto err = libperf_log(this->_tracker, stream, tag) ;
-	if(err != LIBPERF_SUCCESS)
+	if(err != LIBPERF_EXIT_SUCCESS)
 	{
-		if(err == LIBPERF_SYSTEM_ERROR)
+		if(err == LIBPERF_EXIT_SYSTEM_ERROR)
 		{
 			throw std::system_error(errno, std::generic_category()) ;
 		}

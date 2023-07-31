@@ -10,6 +10,11 @@
 
 #include "libperf.h"
 
+/**
+ * @brief Example using libperf in C
+ * @author Salih MSA, Wolfgang Richter, Vincent Bernardoff 
+ */
+
 int main(void)
 {
 	/* Initialise library */

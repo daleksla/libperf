@@ -18,7 +18,6 @@ extern "C" {
 struct libperf_tracker;
 typedef struct libperf_tracker libperf_tracker;
 
-/* lib constants */
 enum libperf_tracepoint {
 	/* sw tracepoints */
 	LIBPERF_COUNT_SW_CPU_CLOCK = 0,
@@ -76,49 +75,55 @@ enum libperf_tracepoint {
 	LIBPERF_LIB_SW_WALL_TIME = 33
 };
 
+enum libperf_exit_code {
+	LIBPERF_SUCCESS = 0,
+	LIBPERF_SYSTEM_ERROR = 1,
+	LIBPERF_COUNTER_INVALID = 2,
+	LIBPERF_COUNTER_UNINITIALISABLE = 3,
+	LIBPERF_HANDLE_INVALID = 4
+};
+
 /**
  * @brief libperf_init - function initialises the libperf library
  * @note See https://man7.org/linux/man-pages/man2/perf_event_open.2.html for valid combination for arguments below
- * @note TODO Initialises counters using some default & library specific attributes (latter e.g. initially disabled, enable on exec., etc.). An explicit init allows you to specify these
  * @param const pid_t id - process ID *or* thread ID to monitor
  * @note Set -1 for system wide readings
  * @brief const int cpu - pass in specific cpuid to track
  * @note Set -1 for aggregate readings (of all CPUs)
  * @return libperf_tracker* - handle for use in future library calls
- * @note return NULL if failure occurs. We deem failure in cases of runtime errors (i.e. bad arguments, bad user permissions, lack of system resources, etc.). If a system has permanent, fixed issues that we are not capable of fixing (ie missing hardware), then there's nothing we can do so we run what we can but we print a warning to let user know
+ * @note return NULL if failure occurs. This will *only be due* to system error. We deem failure in cases of runtime errors (i.e. bad arguments, bad user permissions, lack of system resources, etc.). If a system has permanent, fixed issues that we are not capable of fixing (ie missing hardware), then there's nothing we can do so we run what we can but we print a warning to let user know
  */
 libperf_tracker *libperf_init(const pid_t id, const int cpu);
 
 /**
- * @brief libperf_readcounter - funtion reads a specified counter
- * @note You might want to use this, instead of the logging function, if you a) want to see the numbers real-time, b) only plan on recording one or two values
- * @pre libperf_toggle_counter(..., counter, true) - enable counter
- * @param libperf_tracker *const pd - library structure obtained from libperf_initialise()
- * @param const enum libperf_tracepoint counter - counter type
- * @param uint64_t *const value - value to write value out to
- * @return int - exit code
- */
-int libperf_read_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, uint64_t *const value);
-
-/**
  * @brief libperf_toggle_counter - this function enables, or disables an individual counter
- * @note Needed to configure logging, for use in `libperf_log` function 
  * @param libperf_tracker *const pd - library structure obtained from libperf_initialise()
  * @param const enum libperf_tracepoint counter - counter type
  * @param const bool toggle_type - true to enable, false to disable
- * @return int - exit code
+ * @return enum libperf_exit_code - exit code (see enum libperf_exit_code)
  */
-int libperf_toggle_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, const bool toggle_type);
+enum libperf_exit_code libperf_toggle_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, const bool toggle_type);
+
+/**
+ * @brief libperf_readcounter - funtion reads a specified counter
+ * @note You might want to use this, instead of the logging function, if you a) want to see the numbers real-time, b) only plan on recording one or two values
+ * @pre libperf_toggle_counter(..., counter, true) - enable counters
+ * @param libperf_tracker *const pd - library structure obtained from libperf_initialise()
+ * @param const enum libperf_tracepoint counter - counter type
+ * @param uint64_t *const value - value to write value out to
+ * @return enum libperf_exit_code - exit code (see enum libperf_exit_code)
+ */
+enum libperf_exit_code libperf_read_counter(libperf_tracker *const pd, const enum libperf_tracepoint counter, uint64_t *const value);
 
 /**
  * @brief libperf_log - logs values of all counters for debugging/logging purposes
- * @note Log files are named after the `id` argument that was used when calling libperf_initialise
- * @note Log is saved in the same location in the current working directory
+ * @pre libperf_toggle_counter(..., counter, true) - enable counters
  * @param libperf_tracker *const pd - library structure obtained from libperf_initialise()
  * @param FILE *const stream - output stream for logging
  * @param const size_t tag - a unique identifier to tag log messages (you might want to log periodically, so i = 0 is first tag, etc.)
+ * @return enum libperf_exit_code - exit code (see enum libperf_exit_code)
  */
-int libperf_log(libperf_tracker *const pd, FILE *const stream, const size_t tag);
+enum libperf_exit_code libperf_log(libperf_tracker *const pd, FILE *const stream, const size_t tag);
 
 /**
  * @brief libperf_fini - function shuts down the library, performing cleanup

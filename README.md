@@ -27,7 +27,8 @@ the granularity of snippets of code.
 This fork was created as:
 - The original creator does not maintain the library
 - Components of original library, if failed, would kill running process (bad for libraries)
-- To include a C++ API, including an RAII container
+- To provide informative, non-invasive feedback using `syslog`
+- To include a C++11 API following established standards & practises (RAII, exception handling)
 
 ## Building
 
@@ -37,11 +38,12 @@ libperf has 4 dependancies:
 - C99 conformant compiler
 - CXX11 conformant compiler
 
+Run either of following steps to build:
+- `make` or `make all` for a full build 
+- `make library` for library build only
+- `make examples` for library build only
 
-Run the following step to build the library for *use*:
-- `make` or `make all`
-
-## Using 
+## Using
 
 ### C API
 
@@ -56,11 +58,22 @@ Use `libperf_log` to then obtin a log of all counters - this appends logs into a
 
 Finally, call `libperf_close` to shut down the library
 
-Refer to `example.c`
+The return value of each function can be used to discern whether errors occured or not. For all functions except the initialisation function, an integer code is returned:
+- If the code is 0, function executed successfully
+- If the code is 1, there was an error interfacing with the `libperf` library (e.g. due to bad user parameters)
+- If the code is 2, everything was fine until interacting with the system itself failed
+
+For the latter case, the value of `errno` should be used in the moment to obtain the cause. Logging, for both errors, will inform of the action which failed to execute
+
+Refer to `examples/example.c`
 
 ### CXX API
 
-All functions from the C API are put into namespace `libperf`, with exception `std::runtime_error` being thrown if errors occur. Furthermore, the `libperf::Perf` approaches access to this library via the RAII idiom 
+All functions from the C API are put into namespace `libperf`, as methods of class `libperf::Perf` which follows the RAII idiom.
+
+The exception `std::system_error` is thrown when errors occur, distinguishing either a system error code (i.e. `errno`) or a library-centric one. Logging functionality remains the same
+
+Refer to `examples/example.cpp`
 
 ### Compiling 
 

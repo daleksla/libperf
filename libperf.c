@@ -183,48 +183,48 @@ enum libperf_exit libperf_toggle_counter(libperf_tracker *const pd, const enum l
 	va_list args;
 	va_start(args, toggle_type);
 	switch (toggle_type) {
-		case LIBPERF_EVENT_TOGGLE_ON:
+		case LIBPERF_EVENT_TOGGLE_ON:;
 			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_ENABLE) != 0) { // 0 is good, non-zero is bad 
 				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
 				return LIBPERF_EXIT_SYSTEM_ERROR;
 			}
 			pd->attrs[counter].disabled = 0;
 			break;
-		case LIBPERF_EVENT_TOGGLE_OFF:
+		case LIBPERF_EVENT_TOGGLE_OFF:;
 			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_DISABLE) != 0) {
 				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
 				return LIBPERF_EXIT_SYSTEM_ERROR;
 			}
 			pd->attrs[counter].disabled = 1;
 			break;
-		case LIBPERF_EVENT_TOGGLE_RESET:
+		case LIBPERF_EVENT_TOGGLE_RESET:;
 			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_RESET) != 0) {
 				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
 				return LIBPERF_EXIT_SYSTEM_ERROR;
 			}
 			break;
-		case LIBPERF_EVENT_TOGGLE_OVERFLOW_REFRESH:
+		case LIBPERF_EVENT_TOGGLE_OVERFLOW_REFRESH:;
 			const uint64_t overflows = va_arg(args, uint64_t);
 			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_REFRESH, overflows) != 0) {
 				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
 				return LIBPERF_EXIT_SYSTEM_ERROR;
 			}
 			break;
-		case LIBPERF_EVENT_TOGGLE_OVERFLOW_PERIOD:
-			uint64_t *const period = va_arg(args, uint64_t*);
+		case LIBPERF_EVENT_TOGGLE_OVERFLOW_PERIOD:;
+			uint64_t *const period = va_arg(args, uint64_t *);
 			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_PERIOD, period) != 0) {
 				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
 				return LIBPERF_EXIT_SYSTEM_ERROR;
 			}
 			break;
-		case LIBPERF_EVENT_TOGGLE_OUTPUT:
+		case LIBPERF_EVENT_TOGGLE_OUTPUT:;
 			const uint32_t pause = va_arg(args, uint32_t);
 			if (ioctl(pd->fds[counter], PERF_EVENT_IOC_PAUSE_OUTPUT, pause) != 0) {
 				syslog(LOG_ERR, "libperf (in %s): unable to configure counter '%d'", __func__, counter);
 				return LIBPERF_EXIT_SYSTEM_ERROR;
 			}
 			break;
-		default:
+		default:;
 			syslog(LOG_ERR, "libperf (in %s): unsupported configuration supplied", __func__);
 			return LIBPERF_EXIT_COUNTER_CONFIGURATION_UNSUPPORTED;
 	}

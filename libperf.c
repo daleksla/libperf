@@ -166,7 +166,7 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 
 	pd->wall_start = rdclock();
 
-	syslog(LOG_INFO, "libperf (in %s): library initialised");
+	syslog(LOG_INFO, "libperf (in %s): library initialised", __func__);
 	return pd;
 }
 

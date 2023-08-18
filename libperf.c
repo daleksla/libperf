@@ -136,7 +136,7 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 		/* firstly, we are going to initialise fields, for every single counter perf offers
 		 * we will do so by copying over general data (counter stuff), then specifying additional fields
 		 * TODO at some point, we need to allow the extra fields (ie those which don't pertain to what events to track, but rather HOW the features are tracked) to be customised
-		 * this as it stands could be a default function, and then the described could be libperf_init_explicit or whatecer 
+		 * this as it stands could be a default function, and then the described could be libperf_init_explicit or whatever where they give their own perf attributes
 		 * but that's for a later date, and would most likely require an additional struct or enum parameters (or some combination of the two)
 		 */
 		pd->attrs[i] = default_attrs[i]; // copy over general data
@@ -144,6 +144,13 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 		pd->attrs[i].inherit = 1; // specifics: children inherit tracker (ie if you fork, tracker will still work in child process)
 		pd->attrs[i].disabled = 1; // specifics: disable counters by default
 		pd->attrs[i].enable_on_exec = 0; // specifics: do not enable counters due to exec* call
+
+		if (pd->id != -1) { // if we aren't doing system wide analysis ...
+			// then disable measuring statistics of the linux kernel - this will allow operation on more restrictive system
+			// if we are, it's misleading to disable this information, and you'll simply need the correct permissions
+			pd->attrs[i].exclude_kernel = 1;
+			pd->attrs[i].exclude_hv = 1;
+		}
 
 		/* secondly, create event */
 		pd->fds[i] = sys_perf_event_open(&pd->attrs[i], pd->id, pd->cpu, pd->group, 0); // open event, albeit with no additional flags

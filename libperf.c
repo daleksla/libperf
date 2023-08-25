@@ -323,7 +323,7 @@ void libperf_fini(libperf_tracker *const pd)
 	}
 
 	for (size_t i = 0; i <  __LIBPERF_ARRAY_SIZE(default_attrs); ++i) {
-		if (pd->fds[i] < 0) {
+		if (pd->fds[i] >= 0) {
 			close(pd->fds[i]);
 		}
 	}

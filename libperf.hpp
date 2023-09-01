@@ -38,12 +38,10 @@ namespace libperf {
 			 * @note Set -1 for system wide readings
 			 * @brief const int cpu - pass in specific cpuid to track
 			 * @note Set -1 for aggregate readings (of all CPUs)
-			 * @param const int trackers - bitwise OR combination of trackers
-			 * @note Set -1 to track everything
 			 * @throws std::system_error - We deem failure in cases of runtime errors (i.e. bad arguments, bad user permissions, lack of system resources, etc.). If a system has permanent, fixed issues that we are not capable of fixing (ie missing hardware), then there's nothing we can do so we run what we can but we print a warning to let user know. We throw the errno which caused the specific error
 			 * @note Category of std::system_error will either be only be std::generic_category, as strictly dictated by the underlying C API
 			 */
-			explicit Tracker(const pid_t id, const int cpu, const int trackers) noexcept(false) ;
+			explicit Tracker(const pid_t id, const int cpu) noexcept(false) ;
 
 			/**
 			 * @note Copy constructor + assignment deleted - there are so few scenarios where copying either the file handle (to watch the exact same events) or accessing the attributes would be desirable

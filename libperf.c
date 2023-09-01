@@ -138,15 +138,6 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 		 * this as it stands could be a default function, and then the described could be libperf_init_explicit or whatever where they give their own perf attributes
 		 * but that's for a later date, and would most likely require an additional struct or enum parameters (or some combination of the two)
 		 */
-		if (
-			trackers & (enum libperf_event)i != (enum libperf_event)i
-			&&
-			trackers != -1
-		) { // check if user wants to track this specific flag / all flags
-			pd->fds[i] = -1; // then we set to it an invalid fd immediately so we can't assume it's initialised down the line
-			continue;
-		}
-
 		pd->attrs[i] = default_attrs[i]; // copy over general data
 		pd->attrs[i].size = sizeof(struct perf_event_attr); // specifics: we include this due to kernel backcompatibility issues
 		pd->attrs[i].inherit = 1; // specifics: children inherit being tracked

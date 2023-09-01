@@ -18,14 +18,19 @@
 int main(void)
 {
 	/* Initialise library */
-	libperf_tracker *pd = libperf_init(getpid(), -1, LIBPERF_EVENT_HW_CPU_CYCLES | LIBPERF_EVENT_HW_INSTRUCTIONS); // initialise libperf
+	libperf_tracker *pd = libperf_init(getpid(), -1); // initialise libperf
 	if (pd == NULL) {
 		fprintf(stderr, "didn't init. errno %s\n", strerror(errno));
 		abort();
 	}
 
-	/* Toggle counters */
-	if (libperf_toggle_counter(pd, LIBPERF_EVENT_HW_CPU_CYCLES, LIBPERF_EVENT_TOGGLE_RESET) != 0) { // enable HW CPU cycles counter
+	/* Enable counters */
+	if (libperf_toggle_counter(pd, LIBPERF_EVENT_HW_CPU_CYCLES, LIBPERF_EVENT_TOGGLE_ON) != 0) { // enable HW CPU cycles counter
+		fprintf(stderr, "unable to enable counter (perhaps it wasn't initialisable). errno %d\n", errno);
+		abort();
+	}
+
+	if (libperf_toggle_counter(pd, LIBPERF_EVENT_HW_INSTRUCTIONS, LIBPERF_EVENT_TOGGLE_ON) != 0) { // enable HW instruction count counter
 		fprintf(stderr, "unable to enable counter (perhaps it wasn't initialisable). errno %d\n", errno);
 		abort();
 	}

@@ -27,15 +27,14 @@
  * @author Salih MSA, Wolfgang Richter, Vincent Bernardoff 
  */
 
-#define __LIBPERF_MAX_COUNTERS 32 // number of hardware counters we are even able to utilise
-#define __LIBPERF_ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
+#define LIBPERF_MAX_COUNTERS 32 // number of hardware counters we are even able to utilise
 
 struct libperf_tracker { /* lib struct */
 	int group; // who's the group leader (or -1 if you are)
 	struct perf_event_attr *attrs; // list of events & their attributes. we will also use this to keep track of configuration information
 	pid_t id; // process or thread ID
 	int cpu; // CPU (or CPUs) to track
-	int fds[__LIBPERF_MAX_COUNTERS]; // set of counters
+	int fds[LIBPERF_MAX_COUNTERS]; // set of counters
 	unsigned long long wall_start; // time profiling
 };
 
@@ -70,7 +69,7 @@ static inline int sys_perf_event_open(struct perf_event_attr *const hw_event, co
 	return (int)syscall(__NR_perf_event_open, hw_event, id, cpu, group_fd, flags);
 }
 
-static struct perf_event_attr default_attrs[__LIBPERF_MAX_COUNTERS] = { // detailed configuration information for the event being created
+static struct perf_event_attr default_attrs[LIBPERF_MAX_COUNTERS] = { // detailed configuration information for the event being created
 	// type = type of event,      config = type-specific configuration
 	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_CPU_CLOCK },
 	{ .type = PERF_TYPE_SOFTWARE, .config = PERF_COUNT_SW_TASK_CLOCK },
@@ -119,32 +118,40 @@ libperf_tracker *libperf_init(const pid_t id, const int cpu)
 
 	pd->group = -1;
 
-	for (size_t i = 0; i < __LIBPERF_ARRAY_SIZE(pd->fds); ++i) {
+	for (size_t i = 0; i < LIBPERF_MAX_COUNTERS; ++i) {
 		pd->fds[i] = -1;
 	}
 
 	pd->id = id;
 	pd->cpu = cpu;
 
-	pd->attrs = malloc(__LIBPERF_ARRAY_SIZE(default_attrs) * sizeof(struct perf_event_attr)); // create a local copy of the attributes of our counters
+	pd->attrs = malloc(LIBPERF_MAX_COUNTERS * sizeof(struct perf_event_attr)); // create a space for local, configurable copy of the attributes of our counters
 	if (pd->attrs == NULL) {
 		syslog(LOG_ERR, "libperf (in %s): unable to allocate memory for perf events attributes", __func__);
 		return NULL;
 	}
 
-	for (size_t i = 0; i < __LIBPERF_MAX_COUNTERS; ++i) {
+	for (size_t i = 0; i < LIBPERF_MAX_COUNTERS; ++i) {
 		/* firstly, we are going to initialise fields, for every single counter perf offers
 		 * we will do so by copying over general data (counter stuff), then specifying additional fields
 		 * TODO at some point, we need to allow the extra fields (ie those which don't pertain to what events to track, but rather HOW the features are tracked) to be customised
 		 * this as it stands could be a default function, and then the described could be libperf_init_explicit or whatever where they give their own perf attributes
 		 * but that's for a later date, and would most likely require an additional struct or enum parameters (or some combination of the two)
 		 */
+		if (
+			trackers & (enum libperf_event)i != (enum libperf_event)i
+			&&
+			trackers != -1
+		) { // check if user wants to track this specific flag / all flags
+			pd->fds[i] = -1; // then we set to it an invalid fd immediately so we can't assume it's initialised down the line
+			continue;
+		}
+
 		pd->attrs[i] = default_attrs[i]; // copy over general data
 		pd->attrs[i].size = sizeof(struct perf_event_attr); // specifics: we include this due to kernel backcompatibility issues
-		pd->attrs[i].inherit = 1; // specifics: children inherit tracker (ie if you fork, tracker will still work in child process)
+		pd->attrs[i].inherit = 1; // specifics: children inherit being tracked
 		pd->attrs[i].disabled = 1; // specifics: disable counters by default
 		pd->attrs[i].enable_on_exec = 0; // specifics: do not enable counters due to exec* call
-
 		if (pd->id != -1) { // if we aren't doing system wide analysis ...
 			// then disable measuring statistics of the linux kernel - this will allow operation on more restrictive system
 			// if we are, it's misleading to disable this information, and you'll simply need the correct permissions
@@ -177,7 +184,7 @@ enum libperf_exit libperf_toggle_counter(libperf_tracker *const pd, const enum l
 		return LIBPERF_EXIT_HANDLE_INVALID;
 	}
 
-	if (counter < 0 || counter > __LIBPERF_MAX_COUNTERS) {
+	if (counter < 0 || counter > LIBPERF_MAX_COUNTERS) {
 		syslog(LOG_ERR, "libperf (in %s): invalid counter '%d' supplied\n", __func__, counter);
 		return LIBPERF_EXIT_COUNTER_INVALID;
 	}
@@ -248,7 +255,7 @@ enum libperf_exit libperf_read_counter(libperf_tracker *const pd, const enum lib
 		return LIBPERF_EXIT_HANDLE_INVALID;
 	}
 
-	if (counter < 0 || counter > __LIBPERF_MAX_COUNTERS) {
+	if (counter < 0 || counter > LIBPERF_MAX_COUNTERS) {
 		syslog(LOG_ERR, "libperf (in %s): invalid counter '%d' supplied", __func__, counter);
 		return LIBPERF_EXIT_COUNTER_INVALID;
 	}
@@ -285,11 +292,11 @@ enum libperf_exit libperf_log(libperf_tracker *const pd, FILE *const stream, con
 
 	uint64_t count[3]; /* potentially 3 values */
 
-	struct stats event_stats[__LIBPERF_ARRAY_SIZE(default_attrs)];
+	struct stats event_stats[LIBPERF_MAX_COUNTERS];
 
 	struct stats walltime_nsecs_stats;
 
-	for (size_t i = 0; i < __LIBPERF_MAX_COUNTERS; ++i) {
+	for (size_t i = 0; i < LIBPERF_MAX_COUNTERS; ++i) {
 		if (pd->fds[i] < 0) { // if event isn't monitorable on this system (failure to init)
 			syslog(LOG_WARNING, "libperf (in %s): counter '%d' not initialised", __func__, i);
 			continue; // then we move onto next stat
@@ -310,7 +317,7 @@ enum libperf_exit libperf_log(libperf_tracker *const pd, FILE *const stream, con
 	}
 
 	update_stats(&walltime_nsecs_stats, rdclock() - pd->wall_start);
-	fprintf(stream, "Stats[%lu, %lu]: %14.9f\n", tag, __LIBPERF_ARRAY_SIZE(default_attrs), avg_stats(&walltime_nsecs_stats) / 1e9);
+	fprintf(stream, "Stats[%lu, %lu]: %14.9f\n", tag, LIBPERF_MAX_COUNTERS, avg_stats(&walltime_nsecs_stats) / 1e9);
 
 	return LIBPERF_EXIT_SUCCESS;
 }
@@ -322,7 +329,7 @@ void libperf_fini(libperf_tracker *const pd)
 		return;
 	}
 
-	for (size_t i = 0; i <  __LIBPERF_ARRAY_SIZE(default_attrs); ++i) {
+	for (size_t i = 0; i <  LIBPERF_MAX_COUNTERS; ++i) {
 		if (pd->fds[i] >= 0) {
 			close(pd->fds[i]);
 		}

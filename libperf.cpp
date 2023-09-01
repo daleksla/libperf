@@ -49,9 +49,9 @@ std::string libperf::Error::message(int condition) const
 	return message ;
 }
 
-libperf::Tracker::Tracker(const pid_t id, const int cpu) noexcept(false)
+libperf::Tracker::Tracker(const pid_t id, const int cpu, const int trackers) noexcept(false)
 {
-	this->_tracker = libperf_init(id, cpu) ;
+	this->_tracker = libperf_init(id, cpu, trackers) ;
 	if(this->_tracker == nullptr)
 	{
 		throw std::system_error(errno, std::generic_category()) ;

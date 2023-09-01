@@ -97,10 +97,10 @@ enum libperf_event_toggle {
 } ;
 
 /**
- * @brief libperf_init - function initialises the libperf library
+ * @brief libperf_init - function initialises the libperf library. Specifically, it initialises a set of provided trackers
  * @param const pid_t id - process ID *or* thread ID to monitor
  * @note Set -1 for system wide readings
- * @brief const int cpu - pass in specific cpuid to track
+ * @param const int cpu - pass in specific cpuid to track
  * @note Set -1 for aggregate readings (of all CPUs)
  * @return libperf_tracker* - handle for use in future library calls
  * @note return NULL if failure occurs. This will *only be due* to system error. We deem failure in cases of runtime errors (i.e. bad arguments, bad user permissions, lack of system resources, etc.). If a system has permanent, fixed issues that we are not capable of fixing (ie missing hardware), then there's nothing we can do so we run what we can but we print a warning to let user know

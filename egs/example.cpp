@@ -20,11 +20,7 @@ int main(void)
 {
 	try {
 		/* Initialise library */
-		libperf::Tracker pd(getpid(), -1) ; // initialise libperf
-
-		/* Enable counters */
-		pd.toggle_counter(LIBPERF_EVENT_HW_CPU_CYCLES, LIBPERF_EVENT_TOGGLE_ON) ; // enable HW CPU cycles counter
-		pd.toggle_counter(LIBPERF_EVENT_HW_INSTRUCTIONS, LIBPERF_EVENT_TOGGLE_ON) ;
+		libperf::Tracker pd(getpid(), -1, LIBPERF_EVENT_HW_CPU_CYCLES | LIBPERF_EVENT_HW_INSTRUCTIONS) ; // initialise libperf
 
 		/* Read singular counter */
 		std::uint64_t counter = pd.read_counter(LIBPERF_EVENT_HW_INSTRUCTIONS) ;
@@ -50,10 +46,12 @@ int main(void)
 			abort();
 		}
 
-		pd.log(log, 0); // log current counter values
-		sleep(4) ; // sleep for a bit
-		for (size_t i = 0; i < 10000; ++i); // do some busy work
-		pd.log(log, 1); // log new counter values
+		while(true)
+		{
+			pd.log(log, 0); // log current counter values
+			for (size_t i = 0; i < 10000; ++i); // do some busy work
+			pd.log(log, 1); // log new counter values
+		}	
 	}
 	catch(const std::system_error& err)
 	{

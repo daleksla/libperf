@@ -27,47 +27,65 @@
  * @author Salih MSA, Wolfgang Richter, Vincent Bernardoff 
  */
 
-#define LIBPERF_MAX_COUNTERS 32 // number of hardware counters we are even able to utilise
+#define LIBPERF_MAX_COUNTERS 33 // number of perf counters
+				// this excludes any special library counters
+#define LIBPERF_ADDITIONAL_COUNTERS 1
 
-struct libperf_tracker { /* lib struct */
-	int group; // who's the group leader (or -1 if you are)
-	struct perf_event_attr *attrs; // list of events & their attributes. we will also use this to keep track of configuration information
-	pid_t id; // process or thread ID
-	int cpu; // CPU (or CPUs) to track
-	int fds[LIBPERF_MAX_COUNTERS]; // set of counters
-	unsigned long long wall_start; // time profiling
+static const char *libperf_event_name[LIBPERF_MAX_COUNTERS + LIBPERF_ADDITIONAL_COUNTERS] = {
+	/* index using enum to get event name */
+	/* sw tracepoints */
+	"SW_CPU_CLOCK",
+	"SW_TASK_CLOCK",
+	"SW_CONTEXT_SWITCHES",
+	"SW_CPU_MIGRATIONS",
+	"SW_PAGE_FAULTS",
+	"SW_PAGE_FAULTS_MIN",
+	"SW_PAGE_FAULTS_MAJ",
+
+	/* hw counters */
+	"HW_CPU_CYCLES",
+	"HW_INSTRUCTIONS",
+	"HW_CACHE_REFERENCES",
+	"HW_CACHE_MISSES",
+	"HW_BRANCH_INSTRUCTIONS",
+	"HW_BRANCH_MISSES",
+	"HW_BUS_CYCLES",
+
+	/* cache counters */
+	/** L1D - data cache **/
+	"HW_CACHE_L1D_LOADS",
+	"HW_CACHE_L1D_LOADS_MISSES",
+	"HW_CACHE_L1D_STORES",
+	"HW_CACHE_L1D_STORES_MISSES",
+	"HW_CACHE_L1D_PREFETCHES",
+
+	/** L1I - instruction cache **/
+	"HW_CACHE_L1I_LOADS",
+	"HW_CACHE_L1I_LOADS_MISSES",
+
+	/** LL - last level cache **/
+	"HW_CACHE_LL_LOADS",
+	"HW_CACHE_LL_LOADS_MISSES",
+	"HW_CACHE_LL_STORES",
+	"HW_CACHE_LL_STORES_MISSES",
+
+	/** DTLB - data translation lookaside buffer **/
+	"HW_CACHE_DTLB_LOADS",
+	"HW_CACHE_DTLB_LOADS_MISSES",
+	"HW_CACHE_DTLB_STORES",
+	"HW_CACHE_DTLB_STORES_MISSES",
+
+	/** ITLB - instructiont translation lookaside buffer **/
+	"HW_CACHE_ITLB_LOADS",
+	"HW_CACHE_ITLB_LOADS_MISSES",
+
+	/** BPU - branch prediction unit **/
+	"HW_CACHE_BPU_LOADS",
+	"HW_CACHE_BPU_LOADS_MISSES",
+
+	/** Special internally defined counter **/
+	"SW_WALL_TIME"
 };
-
-static inline unsigned long long rdclock(void)
-{
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (unsigned long long)ts.tv_sec * 1000000000ULL + (unsigned long long)ts.tv_nsec;
-}
-
-struct stats { /* stats section */
-	double n;
-	double mean;
-	double M2;
-};
-
-static void update_stats(struct stats *stats, const uint64_t val)
-{
-	++stats->n;
-	const double delta = (double)val - stats->mean;
-	stats->mean += delta / stats->n;
-	stats->M2 += delta * ((double)val - stats->mean);
-}
-
-static inline double avg_stats(struct stats *stats)
-{
-	return stats->mean;
-}
-
-static inline int sys_perf_event_open(struct perf_event_attr *const hw_event, const pid_t id, const int cpu, const int group_fd, const unsigned long flags)
-{
-	return (int)syscall(__NR_perf_event_open, hw_event, id, cpu, group_fd, flags);
-}
 
 static struct perf_event_attr default_attrs[LIBPERF_MAX_COUNTERS] = { // detailed configuration information for the event being created
 	// type = type of event,      config = type-specific configuration
@@ -105,8 +123,33 @@ static struct perf_event_attr default_attrs[LIBPERF_MAX_COUNTERS] = { // detaile
 	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_ITLB | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
 	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_ITLB | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16)) },
 	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_BPU | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_ACCESS << 16)) },
-	/* { .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_BPU | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16))}, */
+	{ .type = PERF_TYPE_HW_CACHE, .config = (PERF_COUNT_HW_CACHE_BPU | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16))},
 };
+
+struct libperf_tracker { /* lib struct */
+	int group; // who's the group leader (or -1 if you are)
+	struct perf_event_attr *attrs; // list of events & their attributes. we will also use this to keep track of configuration information
+	pid_t id; // process or thread ID
+	int cpu; // CPU (or CPUs) to track
+	int fds[LIBPERF_MAX_COUNTERS]; // set of counters
+	double wall_start; // for time profiling, get abs time when logging started
+};
+
+/**
+ * @brief rdclock - returns time in since some arbitrary point
+ * @return unsigned long long - time in seconds
+ */
+static inline double rdclock(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double)ts.tv_sec + ((double)ts.tv_nsec / 1000000000);
+}
+
+static inline int sys_perf_event_open(struct perf_event_attr *const hw_event, const pid_t id, const int cpu, const int group_fd, const unsigned long flags)
+{
+	return (int)syscall(__NR_perf_event_open, hw_event, id, cpu, group_fd, flags);
+}
 
 libperf_tracker *libperf_init(const pid_t id, const int cpu)
 {
@@ -176,7 +219,7 @@ enum libperf_exit libperf_toggle_counter(libperf_tracker *const pd, const enum l
 	}
 
 	if (counter < 0 || counter > LIBPERF_MAX_COUNTERS) {
-		syslog(LOG_ERR, "libperf (in %s): invalid counter '%d' supplied\n", __func__, counter);
+		syslog(LOG_ERR, "libperf (in %s): invalid perf event counter '%d' supplied\n", __func__, counter);
 		return LIBPERF_EXIT_COUNTER_INVALID;
 	}
 
@@ -246,12 +289,12 @@ enum libperf_exit libperf_read_counter(libperf_tracker *const pd, const enum lib
 		return LIBPERF_EXIT_HANDLE_INVALID;
 	}
 
-	if (counter < 0 || counter > LIBPERF_MAX_COUNTERS) {
-		syslog(LOG_ERR, "libperf (in %s): invalid counter '%d' supplied", __func__, counter);
+	if (counter < 0 || counter > LIBPERF_MAX_COUNTERS + LIBPERF_ADDITIONAL_COUNTERS) {
+		syslog(LOG_ERR, "libperf (in %s): invalid perf event or special library counter '%d' supplied", __func__, counter);
 		return LIBPERF_EXIT_COUNTER_INVALID;
 	}
 
-	if (counter == 32) { // act for a custom instruction
+	if (counter == LIBPERF_LIB_SW_WALL_TIME) { // act for a custom instruction
 		*value = (uint64_t)(rdclock() - pd->wall_start);
 	}
 	else { // all other instructions
@@ -281,34 +324,19 @@ enum libperf_exit libperf_log(libperf_tracker *const pd, FILE *const stream, con
 		return LIBPERF_EXIT_HANDLE_INVALID;
 	}
 
-	uint64_t count[3]; /* potentially 3 values */
-
-	struct stats event_stats[LIBPERF_MAX_COUNTERS];
-
-	struct stats walltime_nsecs_stats;
-
 	for (size_t i = 0; i < LIBPERF_MAX_COUNTERS; ++i) {
-		if (pd->fds[i] < 0) { // if event isn't monitorable on this system (failure to init)
-			syslog(LOG_WARNING, "libperf (in %s): counter '%d' not initialised", __func__, i);
-			continue; // then we move onto next stat
+		uint64_t value;
+		const enum libperf_exit rt = libperf_read_counter(pd, (enum libperf_event)i, &value);
+		if (rt == LIBPERF_EXIT_COUNTER_DISABLED || rt == LIBPERF_EXIT_COUNTER_UNINITIALISABLE) {
+			continue; // these errors are counter-specific and acceptable, move onto next one
+		} else if(rt != LIBPERF_EXIT_SUCCESS) {
+			return rt; // exit+return error which are not recoverable
 		}
-
-		if (pd->attrs[i].disabled == 1) { // if event is currently disabled
-			continue; // then we move onto next stat, we don't print error as people don't need to initialise everything
-		}
-
-		if (read(pd->fds[i], count, sizeof(uint64_t)) != sizeof(uint64_t)) { // if there was an error READING any of the values
-			syslog(LOG_ERR, "libperf (in %s): unable to read event for counter '%d'", __func__, i);
-			return LIBPERF_EXIT_SYSTEM_ERROR; // then we completely stop
-		}
-
-		update_stats(&event_stats[i], count[0]);
-
-		fprintf(stream, "Stats[%lu, %lu]: %14.0f\n", tag, i, avg_stats(&event_stats[i]));
+		// else, if success
+		fprintf(stream, "%s[%lu]: %lu\n", libperf_event_name[i], tag, value); // log raw value
 	}
 
-	update_stats(&walltime_nsecs_stats, rdclock() - pd->wall_start);
-	fprintf(stream, "Stats[%lu, %lu]: %14.9f\n", tag, LIBPERF_MAX_COUNTERS, avg_stats(&walltime_nsecs_stats) / 1e9);
+	fprintf(stream, "%s[%lu]: %14.9f\n", libperf_event_name[LIBPERF_LIB_SW_WALL_TIME], tag, rdclock() - pd->wall_start); // log raw value
 
 	return LIBPERF_EXIT_SUCCESS;
 }
